@@ -28,11 +28,10 @@ epsdk install OneBotAdapter YunhuAdapter AnyMsgSync
 
 <div style="background-color: #f9f9f9; border: 1px solid #ddd; border-radius: 10px; padding: 20px; font-family: Arial, sans-serif; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">
     <h4 style="color: #333; margin-bottom: 15px;">致敬 Amer</h4>
-    <p>我们怀着惋惜的心情告知大家，Amer 同步机器人由于账号被永久冻结，现已停止运行。</p>
-    <img src="https://r2.anran.xyz/baned_amer.png" alt="Amer 被冻结" width="300" style="margin-bottom: 15px;">
     <p>Amer 曾为多个群组提供稳定的消息同步服务，为开源社区做出了重要贡献。感谢它一直以来的努力与陪伴。</p>
     <p>Amer 开源项目地址：<a href="http://github.com/wsu2059q/amer">http://github.com/wsu2059q/amer</a></p>
 </div>
+
 ---
 
 ## 配置说明
