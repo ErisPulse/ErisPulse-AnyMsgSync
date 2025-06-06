@@ -15,3 +15,6 @@ moduleInfo = {
 }
 
 from .Core import Main
+# build_hash="701a6f073bfec96e1d8845d61ac30254c234f83f0b655fa3b13615fe1d6bf345"
+
+# build_hash="1780476ad04fde042282e7b5b98ec83a5d730deb253f338b3ac16d542bf2f46c"
