@@ -91,10 +91,6 @@ class Main:
                     qq_group_id=group_id,
                     yunhu_group_id=yunhu_group_id
                 )
-        def build_yunhu_text_message(self, yunhu_user, content):
-            nickname = yunhu_user.get("senderNickname", "未知用户")
-            sender_id = yunhu_user.get("senderId", "未知ID")
-            return f"[来自 Yunhu] {nickname}({sender_id}): {content}"
 
         @self.sdk.adapter.Yunhu.on("message")
         async def forward_yunhu_to_qq(message):
@@ -150,7 +146,10 @@ class Main:
                     self.logger.info(f"[Yunhu] 已同步撤回消息 {yunhu_msg_id} | 响应: {res}")
 
         self.logger.info("AnySync 消息处理器已注册")
-
+    def build_yunhu_text_message(self, yunhu_user, content):
+        nickname = yunhu_user.get("senderNickname", "未知用户")
+        sender_id = yunhu_user.get("senderId", "未知ID")
+        return f"[来自 Yunhu] {nickname}({sender_id}): {content}"
     def build_user_info(self, sender, user_id, nickname):
         avatar_url = f"https://q1.qlogo.cn/g?b=qq&nk={user_id}&s=640"
         return f"""
