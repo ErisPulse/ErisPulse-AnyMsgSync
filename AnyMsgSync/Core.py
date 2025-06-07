@@ -91,13 +91,17 @@ class Main:
                     qq_group_id=group_id,
                     yunhu_group_id=yunhu_group_id
                 )
+        def build_yunhu_text_message(self, yunhu_user, content):
+            nickname = yunhu_user.get("senderNickname", "未知用户")
+            sender_id = yunhu_user.get("senderId", "未知ID")
+            return f"[来自 Yunhu] {nickname}({sender_id}): {content}"
 
         @self.sdk.adapter.Yunhu.on("message")
         async def forward_yunhu_to_qq(message):
             yunhu_event = message.get("event", {})
             yunhu_msg = yunhu_event.get("message", {})
+            yunhu_user = yunhu_event.get("sender", {})
             content = yunhu_msg.get("content", {}).get("text", "")
-            yunhu_msg_id = yunhu_msg.get("msgId")
             yunhu_group_id = yunhu_msg.get("chatId")
 
             qq_group_id = self.yunhu_to_qq_group_map.get(str(yunhu_group_id))
@@ -105,10 +109,14 @@ class Main:
                 self.logger.warning(f"未配置对应的 QQ 群 | Yunhu群ID: {yunhu_group_id}")
                 return
 
-            res = await self.sdk.adapter.QQ.send("group", qq_group_id, content)
+            text_message = self.build_yunhu_text_message(yunhu_user, content)
+
+            res = await self.sdk.adapter.QQ.send("group", qq_group_id, text_message)
             self.logger.info(f"[Yunhu→QQ] 已发送至群 {qq_group_id} | 响应: {res}")
 
+            yunhu_msg_id = yunhu_msg.get("msgId")
             qq_msg_id = res.get("message_id")
+
             if qq_msg_id and yunhu_msg_id:
                 self.add_message_id_mapping(
                     qq_msg_id=qq_msg_id,
