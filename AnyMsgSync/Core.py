@@ -86,7 +86,6 @@ class Main:
 
             if qq_msg_id and yunhu_msg_id:
                 self.add_message_id_mapping(
-                    sdk,
                     qq_msg_id=qq_msg_id,
                     yunhu_msg_id=yunhu_msg_id,
                     qq_group_id=group_id,
@@ -112,7 +111,6 @@ class Main:
             qq_msg_id = res.get("message_id")
             if qq_msg_id and yunhu_msg_id:
                 self.add_message_id_mapping(
-                    sdk,
                     qq_msg_id=qq_msg_id,
                     yunhu_msg_id=yunhu_msg_id,
                     qq_group_id=qq_group_id,
