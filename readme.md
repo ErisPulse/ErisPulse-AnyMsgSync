@@ -69,8 +69,9 @@ sdk.env.set("YunhuAdapter", {
 })
 
 # 群组映射配置
-sdk.env.set("QQ_TO_YUNHU_GROUP_MAP", {"782199153": "785017366"})  # QQ群ID -> Yunhu群ID
-sdk.env.set("YUNHU_TO_QQ_GROUP_MAP", {"785017366": "782199153"})  # Yunhu群ID -> QQ群ID
+sdk.env.set("QQ_TO_YUNHU_GROUP_MAP", {"QQ群ID": {"group_id": "Yunhu群ID", "format": "html"}})
+sdk.env.set("YUNHU_TO_QQ_GROUP_MAP", {"Yunhu群ID": {"group_id": "QQ群ID", "format": "text"}})
+
 ```
 
 ---
