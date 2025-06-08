@@ -1,4 +1,5 @@
 import asyncio
+import json
 from ErisPulse import sdk
 from .MessageBuilders.QQMessageBuilder import QQMessageBuilder
 from .MessageBuilders.YunhuMessageBuilder import YunhuMessageBuilder
@@ -17,7 +18,18 @@ class Main:
             "QQ": QQMessageBuilder(self),
             "Yunhu": YunhuMessageBuilder(self)
         }
-
+    def parse_message_to_dict(self, message):
+        if isinstance(message, dict):
+            return message
+        elif isinstance(message, str):
+            try:
+                return json.loads(message)
+            except json.JSONDecodeError:
+                self.logger.error("无法解析消息为字典，JSON 格式错误")
+                return {}
+        else:
+            self.logger.warning(f"未知消息类型: {type(message)}")
+            return {}
     def _init_config(self):
         qq_to_yunhu = self.sdk.env.get("QQ_TO_YUNHU_GROUP_MAP", {})
         yunhu_to_qq = self.sdk.env.get("YUNHU_TO_QQ_GROUP_MAP", {})
@@ -42,6 +54,7 @@ class Main:
     async def _setup_message_handlers(self):
         @self.sdk.adapter.QQ.on("message")
         async def forward_qq_to_yunhu(message):
+            message = self.parse_message_to_dict(message)
             group_id = message.get("group_id")
             mapping = self.qq_to_yunhu_group_map.get(str(group_id))
 
@@ -58,9 +71,9 @@ class Main:
                 self.logger.warning(f"不支持的消息格式: {msg_format}")
                 return
 
-            full_content = handler_method(message)  # 传入完整 data
+            full_content = await handler_method(message)  # 传入完整 data
 
-            res = await self.sdk.adapter.Yunhu.Send.To("group", yunhu_group_id).Html(text=full_content)
+            res = await self.sdk.adapter.Yunhu.Send.To("group", yunhu_group_id).Html(full_content)
             self.logger.info(f"[QQ→Yunhu] 已发送至群 {yunhu_group_id} | 响应: {res}")
 
             yunhu_msg_id = res.get("data", {}).get("messageInfo", {}).get("msgId")
@@ -76,6 +89,7 @@ class Main:
 
         @self.sdk.adapter.Yunhu.on("message")
         async def forward_yunhu_to_qq(message):
+            message = self.parse_message_to_dict(message)
             yunhu_event = message.get("event", {})
             yunhu_msg = yunhu_event.get("message", {})
             yunhu_group_id = yunhu_msg.get("chatId")
@@ -92,9 +106,9 @@ class Main:
                 self.logger.warning(f"不支持的消息格式: {msg_format}")
                 return
 
-            text_message = handler_method(message)
+            text_message = await handler_method(message)
 
-            res = await self.sdk.adapter.QQ.Send.To("group", mapping["group_id"]).Text(text=text_message)
+            res = await self.sdk.adapter.QQ.Send.To("group", mapping["group_id"]).Text(text_message)
             self.logger.info(f"[Yunhu→QQ] 已发送至群 {mapping['group_id']} | 响应: {res}")
 
             yunhu_msg_id = yunhu_msg.get("msgId")

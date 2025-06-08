@@ -4,7 +4,7 @@ class QQMessageBuilder:
         self.sdk = main.sdk
         self.logger = self.sdk.logger
 
-    def build_html(self, data):
+    async def build_html(self, data):
         sender = data.get("sender", {})
         user_id = sender.get("user_id", "未知ID")
         nickname = sender.get("nickname", "未知用户")
@@ -45,7 +45,7 @@ class QQMessageBuilder:
 
         return user_info + message_content
 
-    def build_md(self, data):
+    async def build_md(self, data):
         sender = data.get("sender", {})
         user_id = sender.get("user_id", "未知ID")
         nickname = sender.get("nickname", "未知用户")
@@ -69,7 +69,7 @@ class QQMessageBuilder:
 
         return f"{user_info}\n{message_content}"
 
-    def build_text(self, data):
+    async def build_text(self, data):
         sender = data.get("sender", {})
         nickname = sender.get("nickname", "未知用户")
         message_parts = data.get("message", [])
@@ -89,8 +89,8 @@ class QQMessageBuilder:
 
         return f"{nickname}: {message_content}"
 
-    def build_image(self, data):
-        html = self.build_html(data)
+    async def build_image(self, data):
+        html = await self.build_html(data)
         return html  # 后续可调用截图服务生成图片
 
     def _get_handler(self, msg_type, is_md=False, is_text=False):
