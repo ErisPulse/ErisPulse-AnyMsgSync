@@ -98,7 +98,7 @@ class Main:
             self.logger.info(f"[Yunhu→QQ] 已发送至群 {mapping['group_id']} | 响应: {res}")
 
             yunhu_msg_id = yunhu_msg.get("msgId")
-            qq_msg_id = res.get("message_id")  # 假设返回包含 message_id 字段
+            qq_msg_id = res.get("message_id")
 
             if qq_msg_id and yunhu_msg_id:
                 self.add_message_id_mapping(
