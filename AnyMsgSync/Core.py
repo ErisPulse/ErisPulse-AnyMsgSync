@@ -1,9 +1,6 @@
 import asyncio
 import json
 from ErisPulse import sdk
-from .MessageBuilders.QQMessageBuilder import QQMessageBuilder
-from .MessageBuilders.YunhuMessageBuilder import YunhuMessageBuilder
-from .MessageBuilders.TelegramMessageBuilder import TelegramMessageBuilder
 
 
 class Main:
@@ -16,14 +13,78 @@ class Main:
 
         # 动态初始化消息构建器
         self.message_builders = {}
+
+        from .MessageBuilders.QQMessageBuilder import QQMessageBuilder
+        from .MessageBuilders.YunhuMessageBuilder import YunhuMessageBuilder
+        from .MessageBuilders.TelegramMessageBuilder import TelegramMessageBuilder
+
+        builder_map = {
+            "QQ": QQMessageBuilder,
+            "Yunhu": YunhuMessageBuilder,
+            "Telegram": TelegramMessageBuilder
+        }
+
+        self.logger.debug("当前适配器支持平台: %s", dir(self.sdk.adapter))
         for platform in ["QQ", "Yunhu", "Telegram"]:
-            if hasattr(self.sdk.adapter, platform.lower()):
+            if hasattr(self.sdk.adapter, platform):
                 try:
-                    builder_class = globals()[f"{platform}MessageBuilder"]
+                    builder_class = builder_map[platform]
                     self.message_builders[platform] = builder_class(self)
+                    self.logger.info(f"{platform} 消息构建器已加载")
                 except Exception as e:
                     self.logger.warning(f"无法初始化 {platform} 消息构建器: {e}")
+            else:
+                self.logger.debug(f"适配器 {platform} 不存在，跳过构建器初始化")
+    async def handle_message_recall(self, from_platform, message_id, group_id=None):
+        """
+        统一处理消息撤回事件：查找映射并同步撤回所有转发的目标平台消息
+        :param from_platform: 源平台名称，如 "qq", "yunhu", "telegram"
+        :param message_id: 源消息 ID
+        :param group_id: 群组 ID（用于日志）
+        """
+        mapping_table = self.sdk.env.get("message_id_map", {})
+        mapped_targets = []
 
+        # 查找所有目标平台映射
+        for target_platform in ["yunhu", "qq", "telegram"]:
+            if mapping_table.get(from_platform, {}).get(target_platform, {}).get(str(message_id)):
+                mapped_data = mapping_table[from_platform][target_platform][str(message_id)]
+                other_msg_id, other_group_id = mapped_data
+                mapped_targets.append({
+                    "target_platform": target_platform,
+                    "other_msg_id": other_msg_id,
+                    "other_group_id": other_group_id
+                })
+                self.logger.debug(f"[{from_platform.upper()}→{target_platform.upper()}] 找到映射: 消息ID={other_msg_id}, 群ID={other_group_id}")
+
+        if not mapped_targets:
+            self.logger.warning(f"[{from_platform.upper()}] 无法找到对应的目标消息 ID: {message_id}")
+            return
+
+        # 遍历所有目标平台，依次尝试撤回
+        for item in mapped_targets:
+            target_platform = item["target_platform"]
+            other_msg_id = item["other_msg_id"]
+            other_group_id = item["other_group_id"]
+
+            if not hasattr(self.sdk.adapter, target_platform.capitalize()):
+                self.logger.warning(f"[{target_platform.upper()}] 适配器不存在，跳过撤回")
+                continue
+
+            try:
+                self.logger.info(f"[{target_platform.upper()}] 即将撤回消息 {other_msg_id}（群 {other_group_id}）")
+                if target_platform == "yunhu":
+                    res = await self.sdk.adapter.Yunhu.Send.To("group", other_group_id).Recall(other_msg_id)
+                elif target_platform == "qq":
+                    res = await self.sdk.adapter.QQ.Send.To("group", other_group_id).Recall(other_msg_id)
+                elif target_platform == "telegram":
+                    res = await self.sdk.adapter.Telegram.Send.To("group", other_group_id).DeleteMessage(other_msg_id)
+                else:
+                    continue
+
+                self.logger.info(f"[{target_platform.upper()}] 已同步撤回消息 {other_msg_id} | 响应: {res}")
+            except Exception as e:
+                self.logger.error(f"[{target_platform.upper()}] 撤回失败: {e}", exc_info=True)
     def parse_message_to_dict(self, message):
         if isinstance(message, dict):
             return message
@@ -77,7 +138,7 @@ sdk.env.set("AnyMsgSync", {
         try:
             await self._setup_message_handlers()
         except Exception as e:
-            self.logger.error(f"AnyMsgSync 启动失败: {e}")
+            self.logger.error(f"AnyMsgSync 启动失败: {e}", exc_info=True)
 
     async def _setup_message_handlers(self):
 
@@ -89,7 +150,7 @@ sdk.env.set("AnyMsgSync", {
                 message = self.parse_message_to_dict(message)
                 group_id = message.get("group_id")
                 mappings = self.qq_to.get(str(group_id))
-
+                self.logger.debug(f"当前可用的消息构建器: {list(self.message_builders.keys())}")
                 if not mappings:
                     self.logger.warning(f"未配置对应的转发目标 | QQ群ID: {group_id}")
                     return
@@ -102,7 +163,7 @@ sdk.env.set("AnyMsgSync", {
                     builder = self.message_builders.get("QQ")
                     if not builder:
                         self.logger.warning("QQ 消息构建器未加载")
-                        return
+                        continue  # 不中断整体流程
 
                     handler_method = getattr(builder, f"build_{msg_format}", None)
                     if not handler_method:
@@ -116,15 +177,15 @@ sdk.env.set("AnyMsgSync", {
                         continue
 
                     try:
-                        res = await getattr(
-                            self.sdk.adapter[target_type].Send.To("group", target_group_id),
-                            msg_format.capitalize()
-                        )(full_content)
+                        adapter = getattr(self.sdk.adapter, target_type.lower())
+                        send_method = getattr(adapter.Send.To("group", target_group_id), msg_format.capitalize())
+                        res = await send_method(full_content)
                         self.logger.info(f"[QQ→{target_type.capitalize()}] 已发送至群 {target_group_id} | 响应: {res}")
                     except Exception as e:
-                        self.logger.error(f"[QQ→{target_type.capitalize()}] 发送失败: {e}")
+                        self.logger.error(f"[QQ→{target_type.capitalize()}] 发送失败: {e}", exc_info=True)
+                        continue  # 避免后续继续操作 res
 
-                    # 记录消息 ID 映射
+                    # 只有成功发送后才记录映射
                     qq_msg_id = message.get("message_id")
                     other_msg_id = res.get("message_id") or res.get("data", {}).get("messageInfo", {}).get("msgId")
                     if qq_msg_id and other_msg_id:
@@ -141,35 +202,16 @@ sdk.env.set("AnyMsgSync", {
             async def handle_qq_notice(notice):
                 notice_type = notice.get("notice_type")
                 if notice_type == "group_recall":
-                    group_id = notice.get("group_id")
                     user_id = notice.get("user_id")
                     operator_id = notice.get("operator_id")
-                    message_id = notice.get("message_id")
-
                     if user_id != operator_id:
-                        return  # 不是自己撤回的不处理
-
-                    mapping_table = self.sdk.env.get("message_id_map", {})
-
-                    # 查找是否有来自 QQ 的转发映射
-                    mapped_data = None
-                    if mapping_table.get("qq", {}).get("yunhu", {}).get(str(message_id)):
-                        mapped_data = mapping_table["qq"]["yunhu"][str(message_id)]
-                    elif mapping_table.get("qq", {}).get("telegram", {}).get(str(message_id)):
-                        mapped_data = mapping_table["qq"]["telegram"][str(message_id)]
-                    else:
+                        self.logger.debug("非自己撤回的消息，忽略")
                         return
 
-                    other_msg_id, other_group_id = mapped_data
-
-                    if "yunhu" in str(mapped_data):
-                        if hasattr(self.sdk.adapter, "yunhu"):
-                            res = await self.sdk.adapter.Yunhu.Send.To("group", other_group_id).Recall(other_msg_id)
-                            self.logger.info(f"[Yunhu] 已同步撤回消息 {other_msg_id} | 响应: {res}")
-                    elif "telegram" in str(mapped_data):
-                        if hasattr(self.sdk.adapter, "telegram"):
-                            res = await self.sdk.adapter.Telegram.Send.To("group", other_group_id).DeleteMessage(other_msg_id)
-                            self.logger.info(f"[Telegram] 已同步删除消息 {other_msg_id} | 响应: {res}")
+                    message_id = notice.get("message_id")
+                    group_id = notice.get("group_id")
+                    self.logger.info(f"[QQ] 收到撤回通知，消息 ID: {message_id}")
+                    await self.handle_message_recall("qq", message_id, group_id)
 
         # 动态注册 Yunhu 消息处理器
         if hasattr(self.sdk.adapter, "Yunhu"):
@@ -194,7 +236,7 @@ sdk.env.set("AnyMsgSync", {
                     builder = self.message_builders.get("Yunhu")
                     if not builder:
                         self.logger.warning("Yunhu 消息构建器未加载")
-                        return
+                        continue
 
                     handler_method = getattr(builder, f"build_{msg_format}", None)
                     if not handler_method:
@@ -208,15 +250,15 @@ sdk.env.set("AnyMsgSync", {
                         continue
 
                     try:
-                        res = await getattr(
-                            self.sdk.adapter[target_type].Send.To("group", target_group_id),
-                            msg_format.capitalize()
-                        )(full_content)
+                        adapter = getattr(self.sdk.adapter, target_type.lower())
+                        send_method = getattr(adapter.Send.To("group", target_group_id), msg_format.capitalize())
+                        res = await send_method(full_content)
                         self.logger.info(f"[Yunhu→{target_type.capitalize()}] 已发送至群 {target_group_id} | 响应: {res}")
                     except Exception as e:
-                        self.logger.error(f"[Yunhu→{target_type.capitalize()}] 发送失败: {e}")
+                        self.logger.error(f"[Yunhu→{target_type.capitalize()}] 发送失败: {e}", exc_info=True)
+                        continue
 
-                    # 记录消息 ID 映射
+                    # 只有成功发送后才记录映射
                     yunhu_msg_id = yunhu_msg.get("msgId")
                     other_msg_id = res.get("message_id") or res.get("data", {}).get("messageInfo", {}).get("msgId")
                     if yunhu_msg_id and other_msg_id:
@@ -228,10 +270,16 @@ sdk.env.set("AnyMsgSync", {
                             group_id=yunhu_group_id,
                             target_group_id=target_group_id
                         )
+            @self.sdk.adapter.Yunhu.on("recall")
+            async def handle_yunhu_recall(event):
+                yunhu_msg = event.get("message", {})
+                msg_id = yunhu_msg.get("msgId")
+                chat_id = yunhu_msg.get("chatId")
+                self.logger.info(f"[Yunhu] 收到撤回通知，消息 ID: {msg_id}")
+                await self.handle_message_recall("yunhu", msg_id, chat_id)
 
         # 动态注册 Telegram 消息处理器
         if hasattr(self.sdk.adapter, "Telegram"):
-
             @self.sdk.adapter.Telegram.on("message")
             async def forward_telegram_to_other(message):
                 message = self.parse_message_to_dict(message)
@@ -251,7 +299,7 @@ sdk.env.set("AnyMsgSync", {
                     builder = self.message_builders.get("Telegram")
                     if not builder:
                         self.logger.warning("Telegram 消息构建器未加载")
-                        return
+                        continue
 
                     handler_method = getattr(builder, f"build_{msg_format}", None)
                     if not handler_method:
@@ -265,14 +313,15 @@ sdk.env.set("AnyMsgSync", {
                         continue
 
                     try:
-                        res = await getattr(
-                            self.sdk.adapter[target_type].Send.To("group", target_group_id),
-                            msg_format.capitalize()
-                        )(full_content)
+                        adapter = getattr(self.sdk.adapter, target_type.lower())
+                        send_method = getattr(adapter.Send.To("group", target_group_id), msg_format.capitalize())
+                        res = await send_method(full_content)
                         self.logger.info(f"[Telegram→{target_type.capitalize()}] 已发送至群 {target_group_id} | 响应: {res}")
                     except Exception as e:
-                        self.logger.error(f"[Telegram→{target_type.capitalize()}] 发送失败: {e}")
-                    # 记录消息 ID 映射
+                        self.logger.error(f"[Telegram→{target_type.capitalize()}] 发送失败: {e}", exc_info=True)
+                        continue
+
+                    # 只有成功发送后才记录映射
                     telegram_msg_id = message.get("message_id")
                     other_msg_id = res.get("message_id") or res.get("data", {}).get("messageInfo", {}).get("msgId")
                     if telegram_msg_id and other_msg_id:
@@ -284,40 +333,14 @@ sdk.env.set("AnyMsgSync", {
                             group_id=chat_id,
                             target_group_id=target_group_id
                         )
+
             @self.sdk.adapter.Telegram.on("message_delete")
             async def handle_telegram_message_delete(event):
                 chat_id = event.get("chat", {}).get("id")
                 message_id = event.get("message_id")
+                self.logger.info(f"[Telegram] 收到撤回通知，消息 ID: {message_id}")
+                await self.handle_message_recall("telegram", message_id, chat_id)
 
-                # 查找该消息是否被转发到了其他平台
-                mapping_table = self.sdk.env.get("message_id_map", {})
-                mapped_data = None
-
-                if mapping_table.get("telegram", {}).get("qq", {}).get(str(message_id)):
-                    mapped_data = mapping_table["telegram"]["qq"][str(message_id)]
-                elif mapping_table.get("telegram", {}).get("yunhu", {}).get(str(message_id)):
-                    mapped_data = mapping_table["telegram"]["yunhu"][str(message_id)]
-
-                if not mapped_data:
-                    return
-
-                target_msg_id, target_group_id = mapped_data
-
-                # 同步撤回 QQ 消息
-                if "qq" in str(mapped_data) and hasattr(self.sdk.adapter, "qq"):
-                    try:
-                        res = await self.sdk.adapter.QQ.Send.To("group", target_group_id).Recall(target_msg_id)
-                        self.logger.info(f"[QQ] 已同步撤回消息 {target_msg_id} | 响应: {res}")
-                    except Exception as e:
-                        self.logger.error(f"[QQ] 撤回失败: {e}")
-
-                # 同步撤回 Yunhu 消息
-                elif "yunhu" in str(mapped_data) and hasattr(self.sdk.adapter, "yunhu"):
-                    try:
-                        res = await self.sdk.adapter.Yunhu.Send.To("group", target_group_id).Recall(target_msg_id)
-                        self.logger.info(f"[Yunhu] 已同步撤回消息 {target_msg_id} | 响应: {res}")
-                    except Exception as e:
-                        self.logger.error(f"[Yunhu] 撤回失败: {e}")
         self.logger.info("AnyMsgSync 消息处理器已注册")
 
     def add_message_id_mapping(self, *, msg_id, target_msg_id, from_platform, to_platform, group_id, target_group_id):

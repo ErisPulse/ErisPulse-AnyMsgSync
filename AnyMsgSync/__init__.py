@@ -1,7 +1,7 @@
 moduleInfo = {
     "meta": {
         "name": "AnyMsgSync",
-        "version": "1.1.8",
+        "version": "1.2.0",
         "description": "QQ与云湖之间的双向消息转发器",
         "author": "WSu2059q",
         "license": "MIT",
@@ -18,4 +18,4 @@ from .Core import Main
 
 
 
-# build_hash="6a3a5cda3c7c492d61e936ef1da1318dd5b53ba0dd200ab291a453b6f771a8d8"
+# build_hash="e369a953ad21c2daf593ee6ed9621f036684e0c7c3c023f81c6521e98543f8b3"
