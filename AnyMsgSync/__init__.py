@@ -1,7 +1,7 @@
 moduleInfo = {
     "meta": {
         "name": "AnyMsgSync",
-        "version": "1.1.5",
+        "version": "1.1.6",
         "description": "QQ与云湖之间的双向消息转发器",
         "author": "WSu2059q",
         "license": "MIT",
