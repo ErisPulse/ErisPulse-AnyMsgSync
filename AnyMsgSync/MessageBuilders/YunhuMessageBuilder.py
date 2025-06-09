@@ -146,7 +146,3 @@ class YunhuMessageBuilder:
         content = yunhu_msg.get("content", {}).get("text", "")
 
         return f"{sender_nickname}({sender_id}): {content}"
-
-    async def build_image(self, data):
-        html = await self.build_html(data)
-        return html  # TODO: 通过截图服务生成图片

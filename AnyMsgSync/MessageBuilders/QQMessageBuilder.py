@@ -89,10 +89,6 @@ class QQMessageBuilder:
 
         return f"{nickname}: {message_content}"
 
-    async def build_image(self, data):
-        html = await self.build_html(data)
-        return html  # 后续可调用截图服务生成图片
-
     def _get_handler(self, msg_type, is_md=False, is_text=False):
         handlers = {
             "text": lambda data: data["text"],

@@ -73,7 +73,7 @@ class Main:
 
             full_content = await handler_method(message)  # 传入完整 data
 
-            res = await self.sdk.adapter.Yunhu.Send.To("group", yunhu_group_id).Html(full_content)
+            res = await getattr(self.sdk.adapter.Yunhu.Send.To("group", yunhu_group_id), msg_format.capitalize())(full_content)
             self.logger.info(f"[QQ→Yunhu] 已发送至群 {yunhu_group_id} | 响应: {res}")
 
             yunhu_msg_id = res.get("data", {}).get("messageInfo", {}).get("msgId")
@@ -108,7 +108,7 @@ class Main:
 
             text_message = await handler_method(message)
 
-            res = await self.sdk.adapter.QQ.Send.To("group", mapping["group_id"]).Text(text_message)
+            res = await getattr(self.sdk.adapter.QQ.Send.To("group", mapping["group_id"]), msg_format.capitalize())(text_message)
             self.logger.info(f"[Yunhu→QQ] 已发送至群 {mapping['group_id']} | 响应: {res}")
 
             yunhu_msg_id = yunhu_msg.get("msgId")
