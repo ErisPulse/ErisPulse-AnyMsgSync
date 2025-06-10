@@ -36,12 +36,6 @@ class Main:
             else:
                 self.logger.debug(f"适配器 {platform} 不存在，跳过构建器初始化")
     async def handle_message_recall(self, from_platform, message_id, group_id=None):
-        """
-        统一处理消息撤回事件：查找映射并同步撤回所有转发的目标平台消息
-        :param from_platform: 源平台名称，如 "qq", "yunhu", "telegram"
-        :param message_id: 源消息 ID
-        :param group_id: 群组 ID（用于日志）
-        """
         mapping_table = self.sdk.env.get("message_id_map", {})
         mapped_targets = []
 
@@ -61,7 +55,6 @@ class Main:
             self.logger.warning(f"[{from_platform.upper()}] 无法找到对应的目标消息 ID: {message_id}")
             return
 
-        # 遍历所有目标平台，依次尝试撤回
         for item in mapped_targets:
             target_platform = item["target_platform"]
             other_msg_id = item["other_msg_id"]
@@ -282,48 +275,63 @@ sdk.env.set("AnyMsgSync", {
         if hasattr(self.sdk.adapter, "Telegram"):
             @self.sdk.adapter.Telegram.on("message")
             async def forward_telegram_to_other(message):
+                self.logger.info(f"[Telegram] 收到消息：{message}")
                 message = self.parse_message_to_dict(message)
-                chat = message.get("chat", {})
-                chat_id = chat.get("id")
-                mappings = self.telegram_to.get(str(chat_id))
 
+                # 提取 chat_id
+                msg_body = message.get("message", {})
+                chat = msg_body.get("chat", {})
+                chat_id = chat.get("id")
+                if not chat_id:
+                    self.logger.warning("[Telegram] 消息中未找到群组ID，忽略转发")
+                    return
+
+                mappings = self.telegram_to.get(str(chat_id))
                 if not mappings:
-                    self.logger.warning(f"未配置对应的转发目标 | Telegram群ID: {chat_id}")
+                    self.logger.warning(f"[Telegram] 未配置对应的转发目标 | 群组ID: {chat_id}")
                     return
 
                 for mapping in mappings:
                     target_type = mapping["type"]
                     target_group_id = mapping["group_id"]
-                    msg_format = mapping.get("format", "text")
+                    msg_format = mapping.get("format", "text").lower()
 
+                    # 获取消息构建器
                     builder = self.message_builders.get("Telegram")
                     if not builder:
-                        self.logger.warning("Telegram 消息构建器未加载")
+                        self.logger.warning("[Telegram] 消息构建器未加载")
                         continue
 
+                    # 构建内容
                     handler_method = getattr(builder, f"build_{msg_format}", None)
                     if not handler_method:
-                        self.logger.warning(f"不支持的消息格式: {msg_format}")
+                        self.logger.warning(f"[Telegram] 不支持的消息格式: {msg_format}")
                         continue
 
                     full_content = await handler_method(message)
 
+                    # 检查目标平台是否存在
                     if not hasattr(self.sdk.adapter, target_type.lower()):
-                        self.logger.warning(f"适配器 {target_type} 不存在，跳过转发")
+                        self.logger.warning(f"[Telegram] 适配器 {target_type} 不存在，跳过转发")
                         continue
 
                     try:
                         adapter = getattr(self.sdk.adapter, target_type.lower())
-                        send_method = getattr(adapter.Send.To("group", target_group_id), msg_format.capitalize())
+                        send_method = getattr(adapter.Send.To("group", target_group_id), msg_format.capitalize(), None)
+                        if not send_method:
+                            self.logger.warning(f"[Telegram→{target_type.capitalize()}] 发送方法不存在")
+                            continue
+
                         res = await send_method(full_content)
                         self.logger.info(f"[Telegram→{target_type.capitalize()}] 已发送至群 {target_group_id} | 响应: {res}")
                     except Exception as e:
                         self.logger.error(f"[Telegram→{target_type.capitalize()}] 发送失败: {e}", exc_info=True)
                         continue
 
-                    # 只有成功发送后才记录映射
-                    telegram_msg_id = message.get("message_id")
+                    # 记录映射关系
+                    telegram_msg_id = msg_body.get("message_id")
                     other_msg_id = res.get("message_id") or res.get("data", {}).get("messageInfo", {}).get("msgId")
+
                     if telegram_msg_id and other_msg_id:
                         self.add_message_id_mapping(
                             msg_id=telegram_msg_id,
@@ -333,13 +341,6 @@ sdk.env.set("AnyMsgSync", {
                             group_id=chat_id,
                             target_group_id=target_group_id
                         )
-
-            @self.sdk.adapter.Telegram.on("message_delete")
-            async def handle_telegram_message_delete(event):
-                chat_id = event.get("chat", {}).get("id")
-                message_id = event.get("message_id")
-                self.logger.info(f"[Telegram] 收到撤回通知，消息 ID: {message_id}")
-                await self.handle_message_recall("telegram", message_id, chat_id)
 
         self.logger.info("AnyMsgSync 消息处理器已注册")
 
