@@ -45,16 +45,6 @@ epsdk install TelegramAdapter     # Telegram 同步支持
 
 ---
 
-## 💔 悼念 Amer 同步机器人
-
-<div style="background-color: #f9f9f9; border: 1px solid #ddd; border-radius: 10px; padding: 20px; font-family: Arial, sans-serif; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">
-    <h4 style="color: #333; margin-bottom: 15px;">致敬 Amer</h4>
-    <p>Amer 曾为多个群组提供稳定的消息同步服务，为开源社区做出了重要贡献。感谢它一直以来的努力与陪伴。</p>
-    <p>Amer 开源项目地址：<a href="Amer">http://github.com/wsu2059q/amer</a></p>
-</div>
-
----
-
 ## 配置说明
 
 在项目根目录创建或修改 `env.py` 文件进行配置。
@@ -174,3 +164,14 @@ if __name__ == "__main__":
 
 ## 参考链接
 - [ErisPulse 主库](https://github.com/ErisPulse/ErisPulse/)
+
+---
+
+## 💔 悼念 Amer 同步机器人
+
+<div style="background-color: #f9f9f9; border: 1px solid #ddd; border-radius: 10px; padding: 20px; font-family: Arial, sans-serif; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">
+    <h4 style="color: #333; margin-bottom: 15px;">致敬 Amer</h4>
+    <p>Amer 曾为多个群组提供稳定的消息同步服务，为开源社区做出了重要贡献。感谢它一直以来的努力与陪伴。</p>
+    <p>Amer 开源项目地址：<a href="Amer">http://github.com/wsu2059q/amer</a></p>
+</div>
+
