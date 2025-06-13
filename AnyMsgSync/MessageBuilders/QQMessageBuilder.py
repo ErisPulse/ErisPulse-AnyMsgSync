@@ -45,7 +45,7 @@ class QQMessageBuilder:
 
         return user_info + message_content
 
-    async def build_md(self, data):
+    async def build_markdown(self, data):
         sender = data.get("sender", {})
         user_id = sender.get("user_id", "未知ID")
         nickname = sender.get("nickname", "未知用户")

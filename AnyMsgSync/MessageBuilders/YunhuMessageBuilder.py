@@ -125,7 +125,7 @@ class YunhuMessageBuilder:
 
         return user_info + message_content
 
-    async def build_md(self, data):
+    async def build_markdown(self, data):
         yunhu_event = data.get("event", {})
         yunhu_user = yunhu_event.get("sender", {})
         yunhu_msg = yunhu_event.get("message", {})

@@ -53,7 +53,7 @@ class TelegramMessageBuilder:
 </div>
 """
 
-    async def build_md(self, data):
+    async def build_markdown(self, data):
         msg = data.get("message", {})
         from_user = msg.get("from", {})
         user_id = from_user.get("id")

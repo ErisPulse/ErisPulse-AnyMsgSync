@@ -2,6 +2,16 @@ import asyncio
 import json
 from ErisPulse import sdk
 
+# 格式映射表：将用户配置的 format 字段标准化为统一名称
+FORMAT_MAP = {
+    "text": "Text",
+    "txt": "Text",
+    "plain": "Text",
+    "markdown": "Markdown",
+    "md": "Markdown",
+    "html": "Html",
+}
+
 
 class Main:
     def __init__(self, sdk):
@@ -35,6 +45,7 @@ class Main:
                     self.logger.warning(f"无法初始化 {platform} 消息构建器: {e}")
             else:
                 self.logger.debug(f"适配器 {platform} 不存在，跳过构建器初始化")
+
     async def handle_message_recall(self, from_platform, message_id, group_id=None):
         mapping_table = self.sdk.env.get("message_id_map", {})
         mapped_targets = []
@@ -78,6 +89,7 @@ class Main:
                 self.logger.info(f"[{target_platform.upper()}] 已同步撤回消息 {other_msg_id} | 响应: {res}")
             except Exception as e:
                 self.logger.error(f"[{target_platform.upper()}] 撤回失败: {e}", exc_info=True)
+
     def parse_message_to_dict(self, message):
         if isinstance(message, dict):
             return message
@@ -90,6 +102,73 @@ class Main:
         else:
             self.logger.warning(f"未知消息类型: {type(message)}")
             return {}
+
+    def get_adapter_message_id(self, platform, res):
+        """
+        根据平台类型提取 adapter 发送后的 message_id
+        :param platform: 目标平台 ("qq", "yunhu", "telegram")
+        :param res: adapter 发送后返回的结果 dict
+        :return: string or None
+        """
+        if not isinstance(res, dict):
+            self.logger.warning(f"[{platform.upper()}] 无效的响应数据类型: {type(res)}")
+            return None
+
+        if platform == "telegram":
+            return str(res.get("result", {}).get("message_id"))
+        elif platform == "yunhu":
+            return str(res.get("data", {}).get("messageInfo", {}).get("msgId"))
+        elif platform == "qq":
+            return str(res.get("message_id") or res.get("data", {}).get("messageInfo", {}).get("msgId"))
+        else:
+            self.logger.warning(f"未知平台 {platform}，无法提取 message_id")
+            return None
+    def get_message_id(self, message):
+        message = self.parse_message_to_dict(message)
+
+        # 尝试直接获取 message_id
+        if "message_id" in message:
+            return str(message["message_id"])
+
+        # Telegram: message/message_id
+        if "message" in message:
+            msg = message["message"]
+            if isinstance(msg, dict) and "message_id" in msg:
+                return str(msg["message_id"])
+
+        # Telegram: edited_message/message_id
+        if "edited_message" in message:
+            msg = message["edited_message"]
+            if isinstance(msg, dict) and "message_id" in msg:
+                return str(msg["message_id"])
+
+        # Yunhu: event/message/msgId
+        if "event" in message and "message" in message["event"]:
+            return str(message["event"]["message"].get("msgId"))
+
+        # Yunhu: 直接 msgId
+        if "msgId" in message:
+            return str(message["msgId"])
+
+        return None
+
+    def get_mapped_message_id(self, from_platform, msg_id, to_platform, group_id=None):
+        """
+        根据来源平台和消息ID查找目标平台的消息ID
+        :param from_platform: 源平台 ("qq", "yunhu", "telegram")
+        :param msg_id: 源平台消息ID
+        :param to_platform: 目标平台 ("qq", "yunhu", "telegram")
+        :param group_id: 群组ID（可选）
+        :return: tuple (target_msg_id, target_group_id) 或 None
+        """
+        mapping_table = self.sdk.env.get("message_id_map", {})
+        mappings = mapping_table.get(from_platform, {}).get(to_platform, {})
+        msg_id = str(msg_id)
+        if msg_id in mappings:
+            stored_group_id = mappings[msg_id][1]
+            if group_id is None or str(group_id) == stored_group_id:
+                return mappings[msg_id]
+        return None
 
     def _init_config(self):
         forward_map = self.sdk.env.get("AnyMsgSync", {})
@@ -108,13 +187,13 @@ sdk.env.set("AnyMsgSync", {
     "qq": {
         "QQ群ID1": [
             {"type": "yunhu", "group_id": "Yunhu群ID1", "format": "html"},
-            {"type": "telegram", "group_id": -1001234567890, "format": "markdown"}
+            {"type": "telegram", "group_id": -1001234567890, "format": "md"}
         ]
     },
     "yunhu": {
         "Yunhu群ID1": [
             {"type": "qq", "group_id": "QQ群ID1", "format": "text"},
-            {"type": "telegram", "group_id": -1001234567890, "format": "markdown"}
+            {"type": "telegram", "group_id": -1001234567890, "format": "md"}
         ]
     },
     "telegram": {
@@ -135,61 +214,68 @@ sdk.env.set("AnyMsgSync", {
 
     async def _setup_message_handlers(self):
 
+        async def _forward_message_to_other(platform, message, mappings, group_id, builder_name):
+            message = self.parse_message_to_dict(message)
+            self.logger.debug(f"当前可用的消息构建器: {list(self.message_builders.keys())}")
+            if not mappings:
+                self.logger.warning(f"未配置对应的转发目标 | {platform}群ID: {group_id}")
+                return
+
+            for mapping in mappings:
+                target_type = mapping["type"]
+                target_group_id = mapping["group_id"]
+                msg_format = mapping.get("format", "text").lower()
+                standard_format = FORMAT_MAP.get(msg_format, None)
+
+                if not standard_format:
+                    self.logger.warning(f"[{platform}] 不支持的消息格式: {msg_format}")
+                    continue
+
+                builder = self.message_builders.get(builder_name)
+                if not builder:
+                    self.logger.warning(f"{builder_name} 消息构建器未加载")
+                    continue
+
+                handler_method = getattr(builder, f"build_{standard_format.lower()}", None)
+                if not handler_method:
+                    self.logger.warning(f"[{platform}] 不支持的消息格式: {standard_format}")
+                    continue
+
+                full_content = await handler_method(message)
+
+                if not hasattr(self.sdk.adapter, target_type.lower()):
+                    self.logger.warning(f"[{target_type}] 适配器不存在，跳过转发")
+                    continue
+
+                try:
+                    adapter = getattr(self.sdk.adapter, target_type.lower())
+                    send_method = getattr(adapter.Send.To("group", target_group_id), standard_format)
+                    res = await send_method(full_content)
+                    self.logger.info(f"[{platform}→{target_type.capitalize()}] 已发送至群 {target_group_id} | 响应: {res}")
+                except Exception as e:
+                    self.logger.error(f"[{platform}→{target_type.capitalize()}] 发送失败: {e}", exc_info=True)
+                    continue
+
+                # 只有成功发送后才记录映射
+                msg_id = self.get_message_id(message)
+                other_msg_id = self.get_adapter_message_id(target_type.lower(), res)
+                self.logger.debug(f"记录映射关系: {msg_id} → {other_msg_id}")
+                if msg_id and other_msg_id:
+                    self.add_message_id_mapping(
+                        msg_id=msg_id,
+                        target_msg_id=other_msg_id,
+                        from_platform=platform.lower(),
+                        to_platform=target_type.lower(),
+                        group_id=group_id,
+                        target_group_id=target_group_id
+                )
         # 动态注册 QQ 消息处理器
         if hasattr(self.sdk.adapter, "QQ"):
-
             @self.sdk.adapter.QQ.on("message")
             async def forward_qq_to_other(message):
-                message = self.parse_message_to_dict(message)
                 group_id = message.get("group_id")
                 mappings = self.qq_to.get(str(group_id))
-                self.logger.debug(f"当前可用的消息构建器: {list(self.message_builders.keys())}")
-                if not mappings:
-                    self.logger.warning(f"未配置对应的转发目标 | QQ群ID: {group_id}")
-                    return
-
-                for mapping in mappings:
-                    target_type = mapping["type"]
-                    target_group_id = mapping["group_id"]
-                    msg_format = mapping.get("format", "text")
-
-                    builder = self.message_builders.get("QQ")
-                    if not builder:
-                        self.logger.warning("QQ 消息构建器未加载")
-                        continue  # 不中断整体流程
-
-                    handler_method = getattr(builder, f"build_{msg_format}", None)
-                    if not handler_method:
-                        self.logger.warning(f"不支持的消息格式: {msg_format}")
-                        continue
-
-                    full_content = await handler_method(message)
-
-                    if not hasattr(self.sdk.adapter, target_type.lower()):
-                        self.logger.warning(f"适配器 {target_type} 不存在，跳过转发")
-                        continue
-
-                    try:
-                        adapter = getattr(self.sdk.adapter, target_type.lower())
-                        send_method = getattr(adapter.Send.To("group", target_group_id), msg_format.capitalize())
-                        res = await send_method(full_content)
-                        self.logger.info(f"[QQ→{target_type.capitalize()}] 已发送至群 {target_group_id} | 响应: {res}")
-                    except Exception as e:
-                        self.logger.error(f"[QQ→{target_type.capitalize()}] 发送失败: {e}", exc_info=True)
-                        continue  # 避免后续继续操作 res
-
-                    # 只有成功发送后才记录映射
-                    qq_msg_id = message.get("message_id")
-                    other_msg_id = res.get("message_id") or res.get("data", {}).get("messageInfo", {}).get("msgId")
-                    if qq_msg_id and other_msg_id:
-                        self.add_message_id_mapping(
-                            msg_id=qq_msg_id,
-                            target_msg_id=other_msg_id,
-                            from_platform="qq",
-                            to_platform=target_type.lower(),
-                            group_id=group_id,
-                            target_group_id=target_group_id
-                        )
+                await _forward_message_to_other("QQ", message, mappings, group_id, "QQ")
 
             @self.sdk.adapter.QQ.on("notice")
             async def handle_qq_notice(notice):
@@ -208,7 +294,6 @@ sdk.env.set("AnyMsgSync", {
 
         # 动态注册 Yunhu 消息处理器
         if hasattr(self.sdk.adapter, "Yunhu"):
-
             @self.sdk.adapter.Yunhu.on("message")
             async def forward_yunhu_to_other(message):
                 message = self.parse_message_to_dict(message)
@@ -216,53 +301,8 @@ sdk.env.set("AnyMsgSync", {
                 yunhu_msg = yunhu_event.get("message", {})
                 yunhu_group_id = yunhu_msg.get("chatId")
                 mappings = self.yunhu_to.get(str(yunhu_group_id))
+                await _forward_message_to_other("Yunhu", message, mappings, yunhu_group_id, "Yunhu")
 
-                if not mappings:
-                    self.logger.warning(f"未配置对应的转发目标 | Yunhu群ID: {yunhu_group_id}")
-                    return
-
-                for mapping in mappings:
-                    target_type = mapping["type"]
-                    target_group_id = mapping["group_id"]
-                    msg_format = mapping.get("format", "text")
-
-                    builder = self.message_builders.get("Yunhu")
-                    if not builder:
-                        self.logger.warning("Yunhu 消息构建器未加载")
-                        continue
-
-                    handler_method = getattr(builder, f"build_{msg_format}", None)
-                    if not handler_method:
-                        self.logger.warning(f"不支持的消息格式: {msg_format}")
-                        continue
-
-                    full_content = await handler_method(message)
-
-                    if not hasattr(self.sdk.adapter, target_type.lower()):
-                        self.logger.warning(f"适配器 {target_type} 不存在，跳过转发")
-                        continue
-
-                    try:
-                        adapter = getattr(self.sdk.adapter, target_type.lower())
-                        send_method = getattr(adapter.Send.To("group", target_group_id), msg_format.capitalize())
-                        res = await send_method(full_content)
-                        self.logger.info(f"[Yunhu→{target_type.capitalize()}] 已发送至群 {target_group_id} | 响应: {res}")
-                    except Exception as e:
-                        self.logger.error(f"[Yunhu→{target_type.capitalize()}] 发送失败: {e}", exc_info=True)
-                        continue
-
-                    # 只有成功发送后才记录映射
-                    yunhu_msg_id = yunhu_msg.get("msgId")
-                    other_msg_id = res.get("message_id") or res.get("data", {}).get("messageInfo", {}).get("msgId")
-                    if yunhu_msg_id and other_msg_id:
-                        self.add_message_id_mapping(
-                            msg_id=yunhu_msg_id,
-                            target_msg_id=other_msg_id,
-                            from_platform="yunhu",
-                            to_platform=target_type.lower(),
-                            group_id=yunhu_group_id,
-                            target_group_id=target_group_id
-                        )
             @self.sdk.adapter.Yunhu.on("recall")
             async def handle_yunhu_recall(event):
                 yunhu_msg = event.get("message", {})
@@ -275,7 +315,6 @@ sdk.env.set("AnyMsgSync", {
         if hasattr(self.sdk.adapter, "Telegram"):
             @self.sdk.adapter.Telegram.on("message")
             async def forward_telegram_to_other(message):
-                self.logger.info(f"[Telegram] 收到消息：{message}")
                 message = self.parse_message_to_dict(message)
 
                 # 提取 chat_id
@@ -287,6 +326,22 @@ sdk.env.set("AnyMsgSync", {
                     return
 
                 mappings = self.telegram_to.get(str(chat_id))
+                await _forward_message_to_other("Telegram", message, mappings, chat_id, "Telegram")
+
+            @self.sdk.adapter.Telegram.on("message_edit")
+            async def handle_telegram_message_edit(data):
+                self.logger.info("[Telegram] 收到消息编辑事件")
+
+                edited_message = data.get("edited_message", {})
+                chat = edited_message.get("chat", {})
+                chat_id = chat.get("id")
+                message_id = edited_message.get("message_id")
+
+                if not chat_id or not message_id:
+                    self.logger.warning("[Telegram] 缺少必要的 chat_id 或 message_id，忽略处理")
+                    return
+
+                mappings = self.telegram_to.get(str(chat_id))
                 if not mappings:
                     self.logger.warning(f"[Telegram] 未配置对应的转发目标 | 群组ID: {chat_id}")
                     return
@@ -295,52 +350,62 @@ sdk.env.set("AnyMsgSync", {
                     target_type = mapping["type"]
                     target_group_id = mapping["group_id"]
                     msg_format = mapping.get("format", "text").lower()
+                    standard_format = FORMAT_MAP.get(msg_format, None)
 
-                    # 获取消息构建器
+                    if not standard_format:
+                        self.logger.warning(f"[Telegram] 不支持的消息格式: {msg_format}")
+                        continue
+
                     builder = self.message_builders.get("Telegram")
                     if not builder:
                         self.logger.warning("[Telegram] 消息构建器未加载")
                         continue
 
-                    # 构建内容
-                    handler_method = getattr(builder, f"build_{msg_format}", None)
+                    handler_method = getattr(builder, f"build_{standard_format.lower()}", None)
                     if not handler_method:
-                        self.logger.warning(f"[Telegram] 不支持的消息格式: {msg_format}")
+                        self.logger.warning(f"[Telegram] 不支持的消息格式: {standard_format}")
                         continue
 
-                    full_content = await handler_method(message)
+                    full_content = await handler_method({"message": edited_message})
 
-                    # 检查目标平台是否存在
                     if not hasattr(self.sdk.adapter, target_type.lower()):
                         self.logger.warning(f"[Telegram] 适配器 {target_type} 不存在，跳过转发")
                         continue
 
                     try:
                         adapter = getattr(self.sdk.adapter, target_type.lower())
-                        send_method = getattr(adapter.Send.To("group", target_group_id), msg_format.capitalize(), None)
-                        if not send_method:
-                            self.logger.warning(f"[Telegram→{target_type.capitalize()}] 发送方法不存在")
-                            continue
+                        if target_type == "yunhu":
+                            yunhu_msg_id = self.get_mapped_message_id("telegram", message_id, "yunhu", target_group_id)
+                            if yunhu_msg_id:
+                                res = await adapter.Send.To("group", target_group_id).Edit(yunhu_msg_id[0], full_content, standard_format.lower())
+                                self.logger.info(f"[Telegram→Yunhu] 已编辑消息 {yunhu_msg_id[0]} 至群 {target_group_id} | 响应: {res}")
+                            else:
+                                self.logger.warning("[Telegram→Yunhu] 未找到对应 Yunhu 消息 ID，跳过编辑")
+                        elif target_type == "qq":
+                            qq_msg_id = self.get_mapped_message_id("telegram", message_id, "qq", target_group_id)
+                            if qq_msg_id:
+                                await adapter.call_api(
+                                    endpoint="delete_msg",
+                                    message_id=qq_msg_id[0]
+                                )
+                            send_method = getattr(adapter.Send.To("group", target_group_id), standard_format)
+                            res = await send_method(full_content)
+                            self.logger.info(f"[Telegram→QQ] 已发送新消息至群 {target_group_id} | 响应: {res}")
 
-                        res = await send_method(full_content)
-                        self.logger.info(f"[Telegram→{target_type.capitalize()}] 已发送至群 {target_group_id} | 响应: {res}")
+                            other_msg_id = self.get_adapter_message_id(target_type.lower(), res)
+                            if other_msg_id:
+                                self.add_message_id_mapping(
+                                    msg_id=message_id,
+                                    target_msg_id=other_msg_id,
+                                    from_platform="telegram",
+                                    to_platform=target_type.lower(),
+                                    group_id=chat_id,
+                                    target_group_id=target_group_id
+                                )
+
                     except Exception as e:
-                        self.logger.error(f"[Telegram→{target_type.capitalize()}] 发送失败: {e}", exc_info=True)
-                        continue
-
-                    # 记录映射关系
-                    telegram_msg_id = msg_body.get("message_id")
-                    other_msg_id = res.get("message_id") or res.get("data", {}).get("messageInfo", {}).get("msgId")
-
-                    if telegram_msg_id and other_msg_id:
-                        self.add_message_id_mapping(
-                            msg_id=telegram_msg_id,
-                            target_msg_id=other_msg_id,
-                            from_platform="telegram",
-                            to_platform=target_type.lower(),
-                            group_id=chat_id,
-                            target_group_id=target_group_id
-                        )
+                        self.logger.error(f"[Telegram→{target_type.capitalize()}] 处理失败: {e}", exc_info=True)
+                    continue
 
         self.logger.info("AnyMsgSync 消息处理器已注册")
 
@@ -360,6 +425,7 @@ sdk.env.set("AnyMsgSync", {
         mapping[to_platform][from_platform][str(target_msg_id)] = (str(msg_id), str(group_id))
 
         self.sdk.env.set("message_id_map", mapping)
+        self.logger.debug(f"[Mapping] 新增映射: {from_platform}({msg_id}) → {to_platform}({target_msg_id}, {target_group_id})")
 
     def get_original_platform(self, msg_id):
         mapping = self.sdk.env.get("message_id_map", {})
