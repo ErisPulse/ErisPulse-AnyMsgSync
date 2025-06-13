@@ -98,7 +98,6 @@ class QQMessageBuilder:
             "voice": lambda data: f"<audio src='{data['url']}' controls></audio>",
             "video": lambda data: f"<video src='{data['url']}' controls style='max-width: 100%;'></video>",
             "forward": lambda data: "".join([self.build_html({"message": [msg]}) for msg in data.get("messages", [])]),
-            "reply": lambda data: "<div class='reply'>回复</div>",
         }
 
         if is_md:
@@ -107,6 +106,7 @@ class QQMessageBuilder:
             handlers["face"] = lambda data: f"![表情](https://koishi.js.org/QFace/assets/qq_emoji/thumbs/gif_{data['id']}.gif)"
             handlers["voice"] = lambda data: f"[语音]({data['url']})"
             handlers["video"] = lambda data: f"[视频]({data['url']})"
+            handlers["forward"] = lambda data: "[转发消息]"
 
         if is_text:
             handlers["image"] = lambda data: "[图片]"
@@ -115,6 +115,5 @@ class QQMessageBuilder:
             handlers["voice"] = lambda data: "[语音]"
             handlers["video"] = lambda data: "[视频]"
             handlers["forward"] = lambda data: "[转发消息]"
-            handlers["reply"] = lambda data: "[回复]"
 
         return handlers.get(msg_type)

@@ -2,6 +2,7 @@ import aiohttp
 import re
 import asyncio
 
+
 def decode_utf8(text):
     return re.sub(r'\\u([09a-fA-F]{4})', lambda x: chr(int(x.group(1), 16)), text)
 
@@ -100,7 +101,6 @@ class YunhuMessageBuilder:
 
         sender_id = yunhu_user.get("senderId", "未知ID")
         sender_nickname, avatar_url = await self._get_sender_info(sender_id)
-        content = yunhu_msg.get("content", {}).get("text", "")
 
         user_info = f"""
 <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px; background: #ffffff; color: #333333; border-radius: 8px;">
@@ -117,9 +117,18 @@ class YunhuMessageBuilder:
 </div>
 """
 
+        content = []
+        msg_type = yunhu_msg.get("contentType", "text")
+
+        if msg_type == "text":
+            content.append(yunhu_msg.get("content", {}).get("text", ""))
+        elif msg_type == "image":
+            image_url = yunhu_msg.get("content", {}).get("imageUrl", "")
+            content.append(f'<img src="{image_url}" alt="图片" style="max-width: 100%;">')
+
         message_content = f"""
 <div style="padding: 10px; background: #f1f1f1; color: #000000; border-radius: 6px; margin-top: 5px;">
-    {content}
+    {''.join(content)}
 </div>
 """
 
@@ -127,22 +136,32 @@ class YunhuMessageBuilder:
 
     async def build_markdown(self, data):
         yunhu_event = data.get("event", {})
-        yunhu_user = yunhu_event.get("sender", {})
         yunhu_msg = yunhu_event.get("message", {})
+        yunhu_user = yunhu_event.get("sender", {})
 
         sender_id = yunhu_user.get("senderId", "未知ID")
         sender_nickname, _ = await self._get_sender_info(sender_id)
-        content = yunhu_msg.get("content", {}).get("text", "")
 
-        return f"**{sender_nickname}** (`{sender_id}`): {content}"
+        msg_type = yunhu_msg.get("contentType", "text")
+        if msg_type == "text":
+            text = yunhu_msg.get("content", {}).get("text", "")
+            return f"**{sender_nickname}** (`{sender_id}`)\n{text}"
+        elif msg_type == "image":
+            image_url = yunhu_msg.get("content", {}).get("imageUrl", "")
+            return f"**{sender_nickname}** (`{sender_id}`)\n![图片]({image_url})"
+        return ""
 
     async def build_text(self, data):
         yunhu_event = data.get("event", {})
-        yunhu_user = yunhu_event.get("sender", {})
         yunhu_msg = yunhu_event.get("message", {})
+        yunhu_user = yunhu_event.get("sender", {})
 
         sender_id = yunhu_user.get("senderId", "未知ID")
         sender_nickname, _ = await self._get_sender_info(sender_id)
-        content = yunhu_msg.get("content", {}).get("text", "")
 
-        return f"{sender_nickname}({sender_id}): {content}"
+        msg_type = yunhu_msg.get("contentType", "text")
+        if msg_type == "text":
+            return f"{sender_nickname}({sender_id}): {yunhu_msg.get('content', {}).get('text', '')}"
+        elif msg_type == "image":
+            return f"{sender_nickname}({sender_id}): [图片]"
+        return ""
