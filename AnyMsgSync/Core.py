@@ -369,7 +369,7 @@ class Main:
     def __init__(self, sdk):
         self.sdk = sdk
         self.logger = sdk.logger
-
+        self.logger.debug("当前 sdk.adapter 成员: %s", dir(self.sdk.adapter))
         # 初始化核心组件
         self.parser = MessageParser(self)
         self.sync_manager = MessageSyncManager(self)
