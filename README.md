@@ -24,10 +24,10 @@
 pip install ErisPulse
 ```
 
-### 2. 添加官方源
+### 2. 更新内置官方源
 
 ```bash
-epsdk origin add https://sdkframe.anran.xyz
+epsdk update
 ```
 
 CLI 会提示是否更新 SDK，建议选择更新以获得最新功能和修复。
