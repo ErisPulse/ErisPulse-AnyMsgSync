@@ -30,8 +30,6 @@ pip install ErisPulse
 epsdk update
 ```
 
-CLI 会提示是否更新 SDK，建议选择更新以获得最新功能和修复。
-
 ### 3. 安装模块与适配器（按需）
 
 ```bash
