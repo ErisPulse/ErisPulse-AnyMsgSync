@@ -15,6 +15,9 @@ config = {
     "files_to_include": [                              # 需要包含的文件列表
         "AnyMsgSync/__init__.py",
         "AnyMsgSync/Core.py",
+        "AnyMsgSync/QQMessageBuilder.py",
+        "AnyMsgSync/YunhuMessageBuilder.py",
+        "AnyMsgSync/TelegramMessageBuilder.py",
         "README.md"
     ]
 }

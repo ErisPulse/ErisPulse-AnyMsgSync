@@ -1,8 +1,8 @@
 moduleInfo = {
     "meta": {
         "name": "AnyMsgSync",
-        "version": "1.3.1",
-        "description": "QQ与云湖之间的双向消息转发器",
+        "version": "1.3.5",
+        "description": "任何平台间的消息转发器",
         "author": "WSu2059q",
         "license": "MIT",
         "homepage": "https://github.com/ErisPulse/ErisPulse-AnyMsgSync"

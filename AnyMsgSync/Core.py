@@ -423,9 +423,9 @@ sdk.env.set("AnyMsgSync", {
     def _init_message_builders(self):
         self.message_builders = {}
 
-        from .MessageBuilders.QQMessageBuilder import QQMessageBuilder
-        from .MessageBuilders.YunhuMessageBuilder import YunhuMessageBuilder
-        from .MessageBuilders.TelegramMessageBuilder import TelegramMessageBuilder
+        from .QQMessageBuilder import QQMessageBuilder
+        from .YunhuMessageBuilder import YunhuMessageBuilder
+        from .TelegramMessageBuilder import TelegramMessageBuilder
 
         builder_map = {
             "QQ": QQMessageBuilder,
