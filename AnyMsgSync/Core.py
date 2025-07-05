@@ -369,7 +369,6 @@ class Main:
     def __init__(self, sdk):
         self.sdk = sdk
         self.logger = sdk.logger
-        self.logger.debug("当前 sdk.adapter 成员: %s", dir(self.sdk.adapter))
         # 初始化核心组件
         self.parser = MessageParser(self)
         self.sync_manager = MessageSyncManager(self)
@@ -433,7 +432,6 @@ sdk.env.set("AnyMsgSync", {
             "Telegram": TelegramMessageBuilder
         }
 
-        self.logger.debug("当前适配器支持平台: %s", dir(self.sdk.adapter))
         for platform in ["QQ", "Yunhu", "Telegram"]:
             if hasattr(self.sdk.adapter, platform):
                 try:

@@ -1,5 +1,6 @@
 # dev gnore ignore file for Python projects
 devs/
+main.py
 config.db
 
 # Byte-compiled / optimized / DLL files
