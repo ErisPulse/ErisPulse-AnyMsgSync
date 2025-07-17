@@ -1,4 +1,5 @@
 # AnyMsgSync
+> only ErisPulse-1.x 当前未重构
 
 一个基于 [ErisPulse SDK](https://github.com/ErisPulse/ErisPulse) 的跨平台消息同步方案，支持 **QQ群 ↔ 云湖群 ↔ Telegram群** 的多向消息同步。
 
